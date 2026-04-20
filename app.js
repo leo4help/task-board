@@ -20,7 +20,7 @@
     tasks: [],
     summary: null,
     view: 'board',
-    filters: { owner: '', type: '', priority: '', search: '' },
+    filters: { owner: '', type: '', priority: '', search: '', dueRange: '' },
     sortField: 'dueDay',
     sortDir: 'asc'
   };
@@ -153,6 +153,14 @@
     return { text: dueDay.slice(5), cls: 'due-normal' };
   }
 
+  // 以本機時區格式化日期為 yyyy-mm-dd，避免 toISOString() 的 UTC 偏移
+  function fmtDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  }
+
   function escapeHtml(str) {
     if (str == null) return '';
     return String(str)
@@ -200,15 +208,8 @@
     const rate = filtered.length > 0 ? (doneCount / filtered.length * 100) : 0;
     $('kpi-completion').textContent = rate.toFixed(2) + '%';
 
-    // 本週到期（篩選後）
-    const today = new Date(s.today);
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay() + 1);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    const weekStartStr = weekStart.toISOString().slice(0, 10);
-    const weekEndStr = weekEnd.toISOString().slice(0, 10);
-
+    // 本週到期（篩選後）：用共用的 getDateRange 算本週，避免時區與週日邊界的 bug
+    const [weekStartStr, weekEndStr] = getDateRange('thisWeek', s.today);
     const thisWeek = filtered.filter(t => {
       if (!t.dueDay) return false;
       if (t.status && t.status.indexOf('Done') !== -1) return false;
@@ -233,7 +234,44 @@
       types.map(t => `<option value="${escapeHtml(t)}"${t === currentType ? ' selected' : ''}>${escapeHtml(t)}</option>`).join('');
   }
 
+  // 依選項計算日期區間 [start, end]（以 ISO yyyy-mm-dd 字串比對）
+  // 週的定義：週一 ~ 週日
+  function getDateRange(value, todayStr) {
+    if (!value) return null;
+    // 用 local time 解析，避免 new Date('yyyy-mm-dd') 被當成 UTC 導致跨時區偏移
+    const [ty, tm, td] = todayStr.split('-').map(Number);
+    const today = new Date(ty, tm - 1, td);
+    const day = today.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const daysFromMonday = day === 0 ? 6 : day - 1;
+
+    if (value === 'today') {
+      return [todayStr, todayStr];
+    }
+    if (value === 'thisWeek' || value === 'nextWeek') {
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - daysFromMonday + (value === 'nextWeek' ? 7 : 0));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      return [fmtDate(monday), fmtDate(sunday)];
+    }
+    if (value === 'next7' || value === 'next30') {
+      const end = new Date(today);
+      end.setDate(today.getDate() + (value === 'next7' ? 7 : 30));
+      return [todayStr, fmtDate(end)];
+    }
+    if (value === 'thisMonth' || value === 'nextMonth') {
+      const offset = value === 'nextMonth' ? 1 : 0;
+      const start = new Date(today.getFullYear(), today.getMonth() + offset, 1);
+      const end = new Date(today.getFullYear(), today.getMonth() + offset + 1, 0);
+      return [fmtDate(start), fmtDate(end)];
+    }
+    return null; // overdue 走特殊邏輯，不走區間
+  }
+
   function applyFilters(tasks) {
+    const todayStr = state.summary ? state.summary.today : fmtDate(new Date());
+    const dateRange = getDateRange(state.filters.dueRange, todayStr);
+
     return tasks.filter(t => {
       if (state.filters.owner && t.owner !== state.filters.owner) return false;
       if (state.filters.type && t.type !== state.filters.type) return false;
@@ -242,13 +280,23 @@
         const q = state.filters.search.toLowerCase();
         if (!(t.name || '').toLowerCase().includes(q)) return false;
       }
+      // 時間篩選
+      if (state.filters.dueRange === 'overdue') {
+        if (!t.dueDay) return false;
+        if (t.status && t.status.indexOf('Done') !== -1) return false;
+        if (t.status && t.status.indexOf('Canceled') !== -1) return false;
+        if (t.dueDay >= todayStr) return false;
+      } else if (dateRange) {
+        if (!t.dueDay) return false;
+        if (t.dueDay < dateRange[0] || t.dueDay > dateRange[1]) return false;
+      }
       return true;
     });
   }
 
   function renderBoard() {
     const filtered = applyFilters(state.tasks);
-    const today = state.summary ? state.summary.today : new Date().toISOString().slice(0, 10);
+    const today = state.summary ? state.summary.today : fmtDate(new Date());
 
     const cols = ['Pending', 'To Do', 'Doing', 'Done'];
     const byCol = {};
@@ -297,7 +345,7 @@
 
   function renderList() {
     const filtered = applyFilters(state.tasks);
-    const today = state.summary ? state.summary.today : new Date().toISOString().slice(0, 10);
+    const today = state.summary ? state.summary.today : fmtDate(new Date());
 
     const sorted = filtered.slice().sort((a, b) => {
       const field = state.sortField;
@@ -401,13 +449,15 @@
     $('filter-owner').addEventListener('change', e => { state.filters.owner = e.target.value; render(); });
     $('filter-type').addEventListener('change', e => { state.filters.type = e.target.value; render(); });
     $('filter-priority').addEventListener('change', e => { state.filters.priority = e.target.value; render(); });
+    $('filter-daterange').addEventListener('change', e => { state.filters.dueRange = e.target.value; render(); });
     $('filter-search').addEventListener('input', e => { state.filters.search = e.target.value; render(); });
 
     $('filter-reset').addEventListener('click', () => {
-      state.filters = { owner: '', type: '', priority: '', search: '' };
+      state.filters = { owner: '', type: '', priority: '', search: '', dueRange: '' };
       $('filter-owner').value = '';
       $('filter-type').value = '';
       $('filter-priority').value = '';
+      $('filter-daterange').value = '';
       $('filter-search').value = '';
       render();
     });
