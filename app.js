@@ -413,7 +413,6 @@
     });
 
     $('refresh-btn').addEventListener('click', loadAndRender);
-    $('logout-btn').addEventListener('click', logout);
 
     if (window.XCITY_CONFIG && window.XCITY_CONFIG.SHEET_URL) {
       $('sheet-link').href = window.XCITY_CONFIG.SHEET_URL;
