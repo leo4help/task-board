@@ -13,6 +13,9 @@
     'On Hold': 'status-cancel'
   };
 
+  const AUTH_KEY = 'xcity_auth_token';
+  const AUTH_EXPIRY_DAYS = 7;
+
   const state = {
     tasks: [],
     summary: null,
@@ -23,6 +26,83 @@
   };
 
   const $ = (id) => document.getElementById(id);
+
+  function hashPassword(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash = hash & hash;
+    }
+    return hash.toString(36);
+  }
+
+  function checkAuth() {
+    const stored = localStorage.getItem(AUTH_KEY);
+    if (!stored) return false;
+    try {
+      const data = JSON.parse(stored);
+      if (data.expiry < Date.now()) {
+        localStorage.removeItem(AUTH_KEY);
+        return false;
+      }
+      return data.hash === hashPassword(window.XCITY_CONFIG.PASSWORD);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function saveAuth() {
+    const data = {
+      hash: hashPassword(window.XCITY_CONFIG.PASSWORD),
+      expiry: Date.now() + AUTH_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+    };
+    localStorage.setItem(AUTH_KEY, JSON.stringify(data));
+  }
+
+  function logout() {
+    localStorage.removeItem(AUTH_KEY);
+    location.reload();
+  }
+
+  function unlock() {
+    $('lock-screen').style.display = 'none';
+    $('app').style.display = 'block';
+    bindEvents();
+    loadAndRender();
+  }
+
+  function tryPassword() {
+    const input = $('lock-input').value;
+    const err = $('lock-error');
+
+    if (!window.XCITY_CONFIG || !window.XCITY_CONFIG.PASSWORD) {
+      err.textContent = 'config.js 未設定 PASSWORD';
+      return;
+    }
+
+    if (input === window.XCITY_CONFIG.PASSWORD) {
+      saveAuth();
+      err.textContent = '';
+      unlock();
+    } else {
+      err.textContent = '密碼錯誤';
+      $('lock-input').value = '';
+      $('lock-input').focus();
+    }
+  }
+
+  function initLock() {
+    if (checkAuth()) {
+      unlock();
+      return;
+    }
+
+    $('lock-submit').addEventListener('click', tryPassword);
+    $('lock-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') tryPassword();
+    });
+    setTimeout(() => $('lock-input').focus(), 100);
+  }
 
   function getShortStatus(fullStatus) {
     if (!fullStatus) return 'Unknown';
@@ -173,12 +253,10 @@
     const cols = ['Pending', 'To Do', 'Doing', 'Done'];
     const byCol = {};
     cols.forEach(c => byCol[c] = []);
-    const otherTasks = [];
 
     filtered.forEach(t => {
       const s = getShortStatus(t.status);
       if (byCol[s]) byCol[s].push(t);
-      else otherTasks.push(t);
     });
 
     const html = cols.map(col => {
@@ -262,7 +340,7 @@
             <th class="sortable" data-sort="type">類型</th>
             <th class="sortable" data-sort="status">狀態</th>
             <th class="sortable" data-sort="dueDay">Due Day</th>
-            <th>狀態</th>
+            <th>剩餘</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -335,12 +413,12 @@
     });
 
     $('refresh-btn').addEventListener('click', loadAndRender);
+    $('logout-btn').addEventListener('click', logout);
 
     if (window.XCITY_CONFIG && window.XCITY_CONFIG.SHEET_URL) {
       $('sheet-link').href = window.XCITY_CONFIG.SHEET_URL;
     }
   }
 
-  bindEvents();
-  loadAndRender();
+  initLock();
 })();
