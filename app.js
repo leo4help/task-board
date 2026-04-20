@@ -13,9 +13,6 @@
     'On Hold': 'status-cancel'
   };
 
-  const AUTH_KEY = 'xcity_auth_token';
-  const AUTH_EXPIRY_DAYS = 7;
-
   const state = {
     tasks: [],
     summary: null,
@@ -26,83 +23,6 @@
   };
 
   const $ = (id) => document.getElementById(id);
-
-  function hashPassword(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash) + str.charCodeAt(i);
-      hash = hash & hash;
-    }
-    return hash.toString(36);
-  }
-
-  function checkAuth() {
-    const stored = localStorage.getItem(AUTH_KEY);
-    if (!stored) return false;
-    try {
-      const data = JSON.parse(stored);
-      if (data.expiry < Date.now()) {
-        localStorage.removeItem(AUTH_KEY);
-        return false;
-      }
-      return data.hash === hashPassword(window.XCITY_CONFIG.PASSWORD);
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function saveAuth() {
-    const data = {
-      hash: hashPassword(window.XCITY_CONFIG.PASSWORD),
-      expiry: Date.now() + AUTH_EXPIRY_DAYS * 24 * 60 * 60 * 1000
-    };
-    localStorage.setItem(AUTH_KEY, JSON.stringify(data));
-  }
-
-  function logout() {
-    localStorage.removeItem(AUTH_KEY);
-    location.reload();
-  }
-
-  function unlock() {
-    $('lock-screen').style.display = 'none';
-    $('app').style.display = 'block';
-    bindEvents();
-    loadAndRender();
-  }
-
-  function tryPassword() {
-    const input = $('lock-input').value;
-    const err = $('lock-error');
-
-    if (!window.XCITY_CONFIG || !window.XCITY_CONFIG.PASSWORD) {
-      err.textContent = 'config.js 未設定 PASSWORD';
-      return;
-    }
-
-    if (input === window.XCITY_CONFIG.PASSWORD) {
-      saveAuth();
-      err.textContent = '';
-      unlock();
-    } else {
-      err.textContent = '密碼錯誤';
-      $('lock-input').value = '';
-      $('lock-input').focus();
-    }
-  }
-
-  function initLock() {
-    if (checkAuth()) {
-      unlock();
-      return;
-    }
-
-    $('lock-submit').addEventListener('click', tryPassword);
-    $('lock-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter') tryPassword();
-    });
-    setTimeout(() => $('lock-input').focus(), 100);
-  }
 
   function getShortStatus(fullStatus) {
     if (!fullStatus) return 'Unknown';
@@ -179,11 +99,37 @@
     const s = state.summary;
     if (!s) return;
 
-    $('kpi-total').textContent = s.total;
-    $('kpi-overdue').textContent = s.overdueCount;
-    $('kpi-completion').textContent = s.completionRate + '%';
+    // 1. 取得篩選後的任務
+    const filteredTasks = applyFilters(state.tasks);
+    const todayStr = s.today || new Date().toISOString().slice(0, 10);
+    
+    // 2. 計算基礎指標
+    const total = filteredTasks.length;
+    let overdueCount = 0;
+    let doneCount = 0;
 
-    const today = new Date(s.today);
+    filteredTasks.forEach(t => {
+      // 檢查是否逾期
+      const dueInfo = getDueInfo(t.dueDay, todayStr, t.status);
+      if (dueInfo.cls === 'due-overdue') {
+        overdueCount++;
+      }
+      // 檢查是否完成
+      if (t.status && t.status.indexOf('Done') !== -1) {
+        doneCount++;
+      }
+    });
+
+    // 計算達成率 (保留兩位小數以符合 UI)
+    const completionRate = total > 0 ? ((doneCount / total) * 100).toFixed(2) : "0.00";
+
+    // 3. 更新 DOM
+    $('kpi-total').textContent = total;
+    $('kpi-overdue').textContent = overdueCount;
+    $('kpi-completion').textContent = completionRate + '%';
+
+    // 4. 計算本週到期 (針對篩選後的清單)
+    const today = new Date(todayStr);
     const weekStart = new Date(today);
     weekStart.setDate(today.getDate() - today.getDay() + 1);
     const weekEnd = new Date(weekStart);
@@ -191,8 +137,9 @@
     const weekStartStr = weekStart.toISOString().slice(0, 10);
     const weekEndStr = weekEnd.toISOString().slice(0, 10);
 
-    const thisWeek = state.tasks.filter(t => {
+    const thisWeek = filteredTasks.filter(t => {
       if (!t.dueDay) return false;
+      // 已完成的不列入本週待辦
       if (t.status && t.status.indexOf('Done') !== -1) return false;
       return t.dueDay >= weekStartStr && t.dueDay <= weekEndStr;
     });
@@ -235,10 +182,12 @@
     const cols = ['Pending', 'To Do', 'Doing', 'Done'];
     const byCol = {};
     cols.forEach(c => byCol[c] = []);
+    const otherTasks = [];
 
     filtered.forEach(t => {
       const s = getShortStatus(t.status);
       if (byCol[s]) byCol[s].push(t);
+      else otherTasks.push(t);
     });
 
     const html = cols.map(col => {
@@ -322,7 +271,7 @@
             <th class="sortable" data-sort="type">類型</th>
             <th class="sortable" data-sort="status">狀態</th>
             <th class="sortable" data-sort="dueDay">Due Day</th>
-            <th>剩餘</th>
+            <th>狀態</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -395,12 +344,12 @@
     });
 
     $('refresh-btn').addEventListener('click', loadAndRender);
-    $('logout-btn').addEventListener('click', logout);
 
     if (window.XCITY_CONFIG && window.XCITY_CONFIG.SHEET_URL) {
       $('sheet-link').href = window.XCITY_CONFIG.SHEET_URL;
     }
   }
 
-  initLock();
+  bindEvents();
+  loadAndRender();
 })();
