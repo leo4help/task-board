@@ -189,12 +189,18 @@
 
     // 依照目前篩選器過濾後再計算 KPI
     const filtered = applyFilters(state.tasks);
+    const todayStr = s.today;
 
-    // 任務總數（篩選後）
-    $('kpi-total').textContent = filtered.length;
+    // 本日到期（篩選後）：有到期日、未完成、未取消，且到期日 = 今天
+    const dueTodayCount = filtered.filter(t => {
+      if (!t.dueDay) return false;
+      if (t.status && t.status.indexOf('Done') !== -1) return false;
+      if (t.status && t.status.indexOf('Canceled') !== -1) return false;
+      return t.dueDay === todayStr;
+    }).length;
+    $('kpi-today').textContent = dueTodayCount;
 
     // 逾期任務（篩選後）：有到期日、未完成、未取消，且到期日早於今天
-    const todayStr = s.today;
     const overdueCount = filtered.filter(t => {
       if (!t.dueDay) return false;
       if (t.status && t.status.indexOf('Done') !== -1) return false;
