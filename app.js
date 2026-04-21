@@ -304,7 +304,7 @@
     const filtered = applyFilters(state.tasks);
     const today = state.summary ? state.summary.today : fmtDate(new Date());
 
-    const cols = ['Pending', 'To Do', 'Doing', 'Done'];
+    const cols = ['Delay', 'To Do', 'Doing', 'Waiting', 'Done'];
     const byCol = {};
     cols.forEach(c => byCol[c] = []);
 
