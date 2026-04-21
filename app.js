@@ -308,9 +308,19 @@
     const byCol = {};
     cols.forEach(c => byCol[c] = []);
 
+    // Delay 欄改為「計算後的逾期任務」：dueDay < today 且未完成未取消
+    // 若任務已逾期，優先放到 Delay 欄（不再看 Status 欄位）
     filtered.forEach(t => {
-      const s = getShortStatus(t.status);
-      if (byCol[s]) byCol[s].push(t);
+      const isDone = t.status && t.status.indexOf('Done') !== -1;
+      const isCancel = t.status && t.status.indexOf('Canceled') !== -1;
+      const isOverdue = t.dueDay && !isDone && !isCancel && t.dueDay < today;
+
+      if (isOverdue) {
+        byCol['Delay'].push(t);
+      } else {
+        const s = getShortStatus(t.status);
+        if (byCol[s]) byCol[s].push(t);
+      }
     });
 
     const html = cols.map(col => {
