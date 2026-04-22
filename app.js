@@ -136,7 +136,7 @@
   }
 
   function getDueInfo(dueDay, today, status) {
-    if (!dueDay) return { text: '-', cls: 'due-normal' };
+    if (!dueDay) return { text: '-', cls: 'due-normal', isRelative: false };
     const isDone = status && status.indexOf('Done') !== -1;
     const isCancel = status && status.indexOf('Canceled') !== -1;
 
@@ -145,12 +145,12 @@
     const diffDays = Math.round((d1 - d2) / (1000 * 60 * 60 * 24));
 
     if (isDone || isCancel) {
-      return { text: dueDay.slice(5), cls: 'due-normal' };
+      return { text: dueDay.slice(5), cls: 'due-normal', isRelative: false };
     }
-    if (diffDays < 0) return { text: '逾期 ' + Math.abs(diffDays) + ' 天', cls: 'due-overdue' };
-    if (diffDays === 0) return { text: '今日到期', cls: 'due-today' };
-    if (diffDays <= 3) return { text: diffDays + ' 天後', cls: 'due-soon' };
-    return { text: dueDay.slice(5), cls: 'due-normal' };
+    if (diffDays < 0) return { text: '逾期 ' + Math.abs(diffDays) + ' 天', cls: 'due-overdue', isRelative: true };
+    if (diffDays === 0) return { text: '今日到期', cls: 'due-today', isRelative: true };
+    if (diffDays <= 3) return { text: diffDays + ' 天後', cls: 'due-soon', isRelative: true };
+    return { text: dueDay.slice(5), cls: 'due-normal', isRelative: false };
   }
 
   // 以本機時區格式化日期為 yyyy-mm-dd，避免 toISOString() 的 UTC 偏移
@@ -187,11 +187,9 @@
     const s = state.summary;
     if (!s) return;
 
-    // 依照目前篩選器過濾後再計算 KPI
     const filtered = applyFilters(state.tasks);
     const todayStr = s.today;
 
-    // 本日到期（篩選後）：有到期日、未完成、未取消，且到期日 = 今天
     const dueTodayCount = filtered.filter(t => {
       if (!t.dueDay) return false;
       if (t.status && t.status.indexOf('Done') !== -1) return false;
@@ -200,7 +198,6 @@
     }).length;
     $('kpi-today').textContent = dueTodayCount;
 
-    // 逾期任務（篩選後）：有到期日、未完成、未取消，且到期日早於今天
     const overdueCount = filtered.filter(t => {
       if (!t.dueDay) return false;
       if (t.status && t.status.indexOf('Done') !== -1) return false;
@@ -209,12 +206,10 @@
     }).length;
     $('kpi-overdue').textContent = overdueCount;
 
-    // 達成率（篩選後）：Done 數 / 總數
     const doneCount = filtered.filter(t => t.status && t.status.indexOf('Done') !== -1).length;
     const rate = filtered.length > 0 ? (doneCount / filtered.length * 100) : 0;
     $('kpi-completion').textContent = rate.toFixed(2) + '%';
 
-    // 本週到期（篩選後）：用共用的 getDateRange 算本週，避免時區與週日邊界的 bug
     const [weekStartStr, weekEndStr] = getDateRange('thisWeek', s.today);
     const thisWeek = filtered.filter(t => {
       if (!t.dueDay) return false;
@@ -240,14 +235,11 @@
       types.map(t => `<option value="${escapeHtml(t)}"${t === currentType ? ' selected' : ''}>${escapeHtml(t)}</option>`).join('');
   }
 
-  // 依選項計算日期區間 [start, end]（以 ISO yyyy-mm-dd 字串比對）
-  // 週的定義：週一 ~ 週日
   function getDateRange(value, todayStr) {
     if (!value) return null;
-    // 用 local time 解析，避免 new Date('yyyy-mm-dd') 被當成 UTC 導致跨時區偏移
     const [ty, tm, td] = todayStr.split('-').map(Number);
     const today = new Date(ty, tm - 1, td);
-    const day = today.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const day = today.getDay();
     const daysFromMonday = day === 0 ? 6 : day - 1;
 
     if (value === 'today') {
@@ -271,7 +263,7 @@
       const end = new Date(today.getFullYear(), today.getMonth() + offset + 1, 0);
       return [fmtDate(start), fmtDate(end)];
     }
-    return null; // overdue 走特殊邏輯，不走區間
+    return null;
   }
 
   function applyFilters(tasks) {
@@ -286,7 +278,6 @@
         const q = state.filters.search.toLowerCase();
         if (!(t.name || '').toLowerCase().includes(q)) return false;
       }
-      // 時間篩選
       if (state.filters.dueRange === 'overdue') {
         if (!t.dueDay) return false;
         if (t.status && t.status.indexOf('Done') !== -1) return false;
@@ -308,8 +299,6 @@
     const byCol = {};
     cols.forEach(c => byCol[c] = []);
 
-    // Delay 欄改為「計算後的逾期任務」：dueDay < today 且未完成未取消
-    // 若任務已逾期，優先放到 Delay 欄（不再看 Status 欄位）
     filtered.forEach(t => {
       const isDone = t.status && t.status.indexOf('Done') !== -1;
       const isCancel = t.status && t.status.indexOf('Canceled') !== -1;
@@ -323,9 +312,6 @@
       }
     });
 
-    // 每一欄內部按 dueDay 升序排序（日期近的在上、沒填 dueDay 的排最後）
-    // Done 欄特殊處理：完成日期早的放最上，因為同事想看最近完成的在靠後（最舊的完成在上）
-    // 這裡一律用 asc：Delay/To Do/Doing/Waiting 越快到期越上面；Done 最早 dueDay 最上面
     Object.keys(byCol).forEach(col => {
       byCol[col].sort((a, b) => {
         const da = a.dueDay || '9999-12-31';
@@ -353,6 +339,18 @@
     const tagCls = getTagClass(t.type);
     const priCls = getPriorityClass(t.priority);
 
+    // 右下角顯示邏輯：
+    // - 右上角是相對時間（今日到期 / N 天後 / 逾期 N 天）→ 右下角補上絕對日期
+    //   例如右上「今日到期」時，右下顯示「04-22・W17」
+    // - 右上角已是絕對日期 → 右下角只顯示週次，避免重複
+    //   例如右上「05-10」時，右下只顯示「W17」
+    let dateWeekLabel;
+    if (due.isRelative && t.dueDay) {
+      dateWeekLabel = t.dueDay.slice(5) + (t.week ? '・' + t.week : '');
+    } else {
+      dateWeekLabel = t.week || '';
+    }
+
     return `<div class="task-card">
       <div class="task-card-title">
         <span class="priority-bar ${priCls}"></span>${escapeHtml(t.name)}
@@ -365,9 +363,7 @@
         <span class="owner-chip">
           <span class="avatar">${escapeHtml(getInitials(t.owner))}</span>${escapeHtml(t.owner || '未指派')}
         </span>
-        <span style="font-size:11px; color:#9ca3af;">${
-  t.dueDay ? escapeHtml(t.dueDay.slice(5) + (t.week ? '・' + t.week : '')) : escapeHtml(t.week || '')
-}</span>
+        <span style="font-size:11px; color:#9ca3af;">${escapeHtml(dateWeekLabel)}</span>
       </div>
     </div>`;
   }
