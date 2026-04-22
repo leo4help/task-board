@@ -323,6 +323,17 @@
       }
     });
 
+    // 每一欄內部按 dueDay 升序排序（日期近的在上、沒填 dueDay 的排最後）
+    // Done 欄特殊處理：完成日期早的放最上，因為同事想看最近完成的在靠後（最舊的完成在上）
+    // 這裡一律用 asc：Delay/To Do/Doing/Waiting 越快到期越上面；Done 最早 dueDay 最上面
+    Object.keys(byCol).forEach(col => {
+      byCol[col].sort((a, b) => {
+        const da = a.dueDay || '9999-12-31';
+        const db = b.dueDay || '9999-12-31';
+        return da.localeCompare(db);
+      });
+    });
+
     const html = cols.map(col => {
       const items = byCol[col];
       return `<div class="board-column">
