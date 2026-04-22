@@ -365,7 +365,9 @@
         <span class="owner-chip">
           <span class="avatar">${escapeHtml(getInitials(t.owner))}</span>${escapeHtml(t.owner || '未指派')}
         </span>
-        <span style="font-size:11px; color:#9ca3af;">${escapeHtml(t.week || '')}</span>
+        <span style="font-size:11px; color:#9ca3af;">${
+  t.dueDay ? escapeHtml(t.dueDay.slice(5) + (t.week ? '・' + t.week : '')) : escapeHtml(t.week || '')
+}</span>
       </div>
     </div>`;
   }
