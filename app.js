@@ -242,6 +242,28 @@
     const day = today.getDay();
     const daysFromMonday = day === 0 ? 6 : day - 1;
 
+    // --- 新增開始 ---
+  
+  // 1. 過去 7 天 (不含今日)：範圍是 [今天-7天] 到 [今天-1天]
+  if (value === 'past7') {
+    const start = new Date(today);
+    start.setDate(today.getDate() - 7);
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    return [fmtDate(start), fmtDate(yesterday)];
+  }
+
+  // 2. 上週：範圍是 [上週一] 到 [上週日]
+  if (value === 'lastWeek') {
+    const lastMonday = new Date(today);
+    lastMonday.setDate(today.getDate() - daysFromMonday - 7);
+    const lastSunday = new Date(lastMonday);
+    lastSunday.setDate(lastMonday.getDate() + 6);
+    return [fmtDate(lastMonday), fmtDate(lastSunday)];
+  }
+  
+  // --- 新增結束 ---
+
     if (value === 'today') {
       return [todayStr, todayStr];
     }
